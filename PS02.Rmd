@@ -26,7 +26,12 @@ train <- read_csv("data/train.csv")
 # Exploratory Data Analysis
 
 ```{r}
-
+names(train)
+require(mosaic)
+tally(train$num_room)
+ggplot(train,aes(x=price_doc,fill=num_room))+geom_histogram(binwidth=3e+6,position="dodge")+xlim(2e+07,5e+07)
+ggplot(train,aes(x=timestamp,y=price_doc))+geom_point(alpha=0.5)
+ggplot(train,aes(x=life_sq,y=price_doc))+geom_point(alpha=0.5)+xlim(0,250)
 ```
 
 
