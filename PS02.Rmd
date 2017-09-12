@@ -26,7 +26,20 @@ train <- read_csv("data/train.csv")
 # Exploratory Data Analysis
 
 ```{r}
+ggplot(train, aes(x=full_sq, y=price_doc)) +
+  geom_jitter()   # price is correlated with square footage
 
+ggplot(train_small, aes(x=state, y=price_doc)) +
+  geom_boxplot()   # state 4 has more expensive houses, NA has cheapest houses (in general)
+train %>%
+  group_by(state) %>%
+  summarize(avg_price = mean(price_doc))
+
+ggplot(train, aes(x=timestamp, y=price_doc)) +
+  geom_point(alpha=0.3)
+train %>%
+  group_by(year(timestamp)) %>%
+  summarize(price = mean(price_doc))   # average price goes up over time
 ```
 
 
