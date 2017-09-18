@@ -16,43 +16,128 @@ knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4.5)
 
 # Load packages
 library(tidyverse)
+library(lubridate)
 
 # Note the relative file path, and not absolute file path:
 # http://www.coffeecup.com/help/articles/absolute-vs-relative-pathslinks/
 train <- read_csv("data/train.csv")
+test <- read_csv("data/test.csv")
 ```
 
 
-# Exploratory Data Analysis
+# Exploratory Data Analysis (EDA)
+
+As 20-something-year-old college students, we don't know a whole lot about real estate. We do know, however, that we consistently hear three mantras on the subject: "Location, location, location", "... the housing market...", and something along the lines of "I want a nice house". As such, we focus in our EDA on measures of location quality, time, and house quality.
+
+Before we get into looking at specific variables, we examine the correlations of each given (numeric) variable with house price as a sort of sanity check.
 
 ```{r}
-ggplot(train, aes(x=full_sq, y=price_doc)) +
-  geom_jitter()   # price is correlated with square footage
+# Find which variable has the highest correlation with price_doc
+corList <- c()
+for(i in 1:(length(names(train)) -1 )){
+  if(class(train[[i]]) == "integer" | class(train[[i]]) == "numeric"){
+    val <- cor(x = train[[i]], y = train[["price_doc"]])
+    corList <- c(corList, val)
+  }
+  else{ # If correlation is not possible, a 0 is placed so that the correlation matches with the column name
+    val <- 0
+    corList <- c(corList, val)
+  }
+}
 
-ggplot(train_small, aes(x=state, y=price_doc)) +
-  geom_boxplot()   # state 4 has more expensive houses, NA has cheapest houses (in general)
+corListMatched <- data.frame(names(train)[-292], corList) %>%
+  filter(abs(corList) > 0.2) 
+corListMatched <- corListMatched[order(-abs(corListMatched$corList)), ]
+corListMatched[1:7,]
+```
+
+We notice that the general "house quality" measure `full_sq` seems to be highly correlated with house price. Another "house quality" variable that should be important is `state`, which measures the condition of the house.
+
+```{r}
 train %>%
   group_by(state) %>%
   summarize(avg_price = mean(price_doc))
+ggplot(train, aes(x=state, y=price_doc)) +
+  geom_boxplot()   # state 4 has more expensive houses, NA has cheapest houses (in general)
+```
 
+Clearly, houses that are in better condition are more expensive. (33 is most likely a data input error, NA may even be partially due to purposeful non-reporting)
+
+Many location-based variables, such as the number of sports facilities nearby or distance from the Kremlin, were also quite strongly related to house price as well.
+
+```{r}
+ggplot(train, aes(x=full_sq, y=price_doc)) +
+  scale_x_continuous(limits = c(0, 1000)) + 
+  geom_jitter()   # price is correlated with square footage
+ggplot(train,aes(x=kremlin_km,y=price_doc)) +
+  geom_point() # price is inversely related with distance from the Kremlin
+```
+
+We suppose that location-based variables should be highly related to each other. In other words, they should generally indicate "distance from city center," or something along those lines.
+
+Finally, we examine mean house prices over time to see if there are highly significant market trends.
+
+```{r}
 ggplot(train, aes(x=timestamp, y=price_doc)) +
   geom_point(alpha=0.3)
 train %>%
   group_by(year(timestamp)) %>%
-  summarize(price = mean(price_doc))   # average price goes up over time
+  summarize(price = mean(price_doc))
 ```
 
+We notice that average house prices indeed increase over time (inflation!).
+
+To fit a simple spline model, though, without any multivariate or GAM shenanigans, we can only use one numeric variable. Many of the measures that we've examined, though, are highly significant.
+
+```{r}
+model <- lm(price_doc~state+timestamp+kremlin_km+full_sq,data=train)
+summary(model)
+```
+
+Ultimately, we choose to just use `full_sq`.
 
 # Model Fit
 
-```{r}
+Now, we have to decide how much "wiggle" to give our spline model.
 
+```{r}
+smooth.spline(train$full_sq, train$price_doc, df=5) %>% 
+  broom::augment() %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue", size=1)
 ```
+
+Whoops - outliers.
+
+```{r}
+train2 <- train %>%
+  filter(full_sq < 1000)
+
+smooth.spline(train2$full_sq, train2$price_doc, df=5) %>% 
+  broom::augment() %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue", size=1)
+```
+
+```{r}
+smooth.spline(train2$full_sq, train2$price_doc, df=5) %>% 
+  broom::augment() %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y)) +
+  geom_line(aes(y=.fitted), col="blue", size=1)
+```
+
+By just qualitatively examining different degrees of freedom, it seems like df=6ish is good.
 
 
 # Create Submission File
 
 ```{r}
-
+model <- smooth.spline(train2$full_sq, train2$price_doc, df=5)
+preds <- predict(model, test$full_sq)
+submission <- data.frame(test$id, preds$y)
+write.csv(submission, "submission.csv")
 ```
 
