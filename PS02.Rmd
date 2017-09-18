@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 02"
-author: "WRITE YOUR NAMES HERE"
+author: "Jonathan Che, Tim Lee, Sarah Teichman"
 date: "2017-09-19"
 output:
   html_document:
@@ -31,7 +31,7 @@ As 20-something-year-old college students, we don't know a whole lot about real 
 
 Before we get into looking at specific variables, we examine the correlations of each given (numeric) variable with house price as a sort of sanity check.
 
-```{r}
+```{r, warning=FALSE}
 # Find which variable has the highest correlation with price_doc
 corList <- c()
 for(i in 1:(length(names(train)) -1 )){
@@ -61,11 +61,11 @@ ggplot(train, aes(x=state, y=price_doc)) +
   geom_boxplot()   # state 4 has more expensive houses, NA has cheapest houses (in general)
 ```
 
-Clearly, houses that are in better condition are more expensive. (33 is most likely a data input error, NA may even be partially due to purposeful non-reporting)
+Clearly, houses that are in better condition (i.e. state 4) are more expensive. (33 is most likely a data input error, NAs may even be partially due to purposeful non-reporting)
 
 Many location-based variables, such as the number of sports facilities nearby or distance from the Kremlin, were also quite strongly related to house price as well.
 
-```{r}
+```{r, warning=FALSE}
 ggplot(train, aes(x=full_sq, y=price_doc)) +
   scale_x_continuous(limits = c(0, 1000)) + 
   geom_jitter()   # price is correlated with square footage
@@ -94,50 +94,67 @@ model <- lm(price_doc~state+timestamp+kremlin_km+full_sq,data=train)
 summary(model)
 ```
 
-Ultimately, we choose to just use `full_sq`.
+Ultimately, we choose to just use `full_sq` because of the strength of its relationship to house price.
 
 # Model Fit
 
 Now, we have to decide how much "wiggle" to give our spline model.
 
 ```{r}
-smooth.spline(train$full_sq, train$price_doc, df=5) %>% 
-  broom::augment() %>% 
-  ggplot(aes(x=x)) +
-  geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue", size=1)
-```
-
-Whoops - outliers.
-
-```{r}
 train2 <- train %>%
-  filter(full_sq < 1000)
+  filter(full_sq < 1000)   # remove one outlier at 4000 square feet
 
-smooth.spline(train2$full_sq, train2$price_doc, df=5) %>% 
-  broom::augment() %>% 
+# Modified from https://gist.github.com/rudeboybert/752f7aa1e42faa2174822dd29bfaf959
+df_values <- c(2, 5, 10, 20)
+overall <- NULL
+for(df in df_values){
+  overall <- smooth.spline(train2$full_sq, train2$price_doc, df=df) %>%
+    broom::augment() %>%
+    mutate(df=df) %>%
+    bind_rows(overall)
+}
+overall <- overall %>% 
+  as_tibble()
+multiple_df <- overall %>% 
   ggplot(aes(x=x)) +
-  geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue", size=1)
+  geom_point(aes(y=y), size=0.5) +
+  geom_line(aes(y=.fitted), col="blue", size=1) +
+  facet_wrap(~df, nrow=2) +
+  labs(title="Splines fit w/ different degrees of freedom")
+multiple_df
 ```
+
+By just qualitatively examining different degrees of freedom, it seems like something between 5 and 10 degrees of freedom gives a good general fit.
 
 ```{r}
-smooth.spline(train2$full_sq, train2$price_doc, df=5) %>% 
-  broom::augment() %>% 
+df_values <- c(6,7,8,9)
+overall <- NULL
+for(df in df_values){
+  overall <- smooth.spline(train2$full_sq, train2$price_doc, df=df) %>%
+    broom::augment() %>%
+    mutate(df=df) %>%
+    bind_rows(overall)
+}
+overall <- overall %>% 
+  as_tibble()
+multiple_df <- overall %>% 
   ggplot(aes(x=x)) +
-  geom_point(aes(y=y)) +
-  geom_line(aes(y=.fitted), col="blue", size=1)
+  geom_point(aes(y=y), size=0.5) +
+  geom_line(aes(y=.fitted), col="blue", size=1) +
+  facet_wrap(~df, nrow=2) +
+  labs(title="Splines fit w/ different degrees of freedom")
+multiple_df
 ```
 
-By just qualitatively examining different degrees of freedom, it seems like df=6ish is good.
-
+We will use 7 degrees of freedom in our submission.
 
 # Create Submission File
 
 ```{r}
-model <- smooth.spline(train2$full_sq, train2$price_doc, df=5)
+model <- smooth.spline(train2$full_sq, train2$price_doc, df=7)
 preds <- predict(model, test$full_sq)
 submission <- data.frame(test$id, preds$y)
-write.csv(submission, "submission.csv")
+names(submission) <- c("id", "price_doc")
+write.csv(submission, "submission.csv", row.names=FALSE)
 ```
 
