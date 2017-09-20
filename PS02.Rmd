@@ -1,6 +1,6 @@
 ---
 title: "STAT/MATH 495: Problem Set 02"
-author: "WRITE YOUR NAMES HERE"
+author: "Jonathan Che, Tim Lee, Sarah Teichman"
 date: "2017-09-19"
 output:
   html_document:
@@ -16,35 +16,148 @@ knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=4.5)
 
 # Load packages
 library(tidyverse)
+library(lubridate)
 
 # Note the relative file path, and not absolute file path:
 # http://www.coffeecup.com/help/articles/absolute-vs-relative-pathslinks/
 train <- read_csv("data/train.csv")
+test <- read_csv("data/test.csv")
 ```
 
 
-# Exploratory Data Analysis
+# Exploratory Data Analysis (EDA)
+
+As 20-something-year-old college students, we don't know a whole lot about real estate. We do know, however, that we consistently hear three mantras on the subject: "Location, location, location", "... the housing market...", and something along the lines of "I want a nice house". As such, we focus in our EDA on measures of location quality, time, and house quality.
+
+Before we get into looking at specific variables, we examine the correlations of each given (numeric) variable with house price as a sort of sanity check.
+
+```{r, warning=FALSE}
+# Find which variable has the highest correlation with price_doc
+corList <- c()
+for(i in 1:(length(names(train)) -1 )){
+  if(class(train[[i]]) == "integer" | class(train[[i]]) == "numeric"){
+    val <- cor(x = train[[i]], y = train[["price_doc"]])
+    corList <- c(corList, val)
+  }
+  else{ # If correlation is not possible, a 0 is placed so that the correlation matches with the column name
+    val <- 0
+    corList <- c(corList, val)
+  }
+}
+
+corListMatched <- data.frame(names(train)[-292], corList) %>%
+  filter(abs(corList) > 0.2) 
+corListMatched <- corListMatched[order(-abs(corListMatched$corList)), ]
+corListMatched[1:7,]
+```
+
+We notice that the general "house quality" measure `full_sq` seems to be highly correlated with house price. Another "house quality" variable that should be important is `state`, which measures the condition of the house.
 
 ```{r}
-names(train)
-require(mosaic)
-tally(train$num_room)
-ggplot(train,aes(x=price_doc,fill=num_room))+geom_histogram(binwidth=3e+6,position="dodge")+xlim(2e+07,5e+07)
-ggplot(train,aes(x=timestamp,y=price_doc))+geom_point(alpha=0.5)
-ggplot(train,aes(x=life_sq,y=price_doc))+geom_point(alpha=0.5)+xlim(0,250)
+train %>%
+  group_by(state) %>%
+  summarize(avg_price = mean(price_doc))
+ggplot(train, aes(x=state, y=price_doc)) +
+  geom_boxplot() +# state 4 has more expensive houses, NA has cheapest houses (in general)
+  ggtitle("House Price by Condition")+xlab("Condition")+ylab("Price")
 ```
 
+Clearly, houses that are in better condition (i.e. state 4) are more expensive. (33 is most likely a data input error, NAs may even be partially due to purposeful non-reporting)
+
+Many location-based variables, such as the number of sports facilities nearby or distance from the Kremlin, were also quite strongly related to house price as well.
+
+```{r, warning=FALSE}
+ggplot(train, aes(x=full_sq, y=price_doc)) +
+  scale_x_continuous(limits = c(0, 1000)) + 
+  geom_jitter() +  # price is correlated with square footage
+  ggtitle("House price by Square Feet")+xlab("Square Footage")+ylab("Price")
+ggplot(train,aes(x=kremlin_km,y=price_doc)) +
+  geom_point() + # price is inversely related with distance from the Kremlin
+  ggtitle("House price by distance from the Kremlin") + xlab("Distance from the Kremlin (in km)")+ylab("Price")
+```
+
+We suppose that location-based variables should be highly related to each other. In other words, they should generally indicate "distance from city center," or something along those lines.
+
+Finally, we examine mean house prices over time to see if there are highly significant market trends.
+
+```{r}
+ggplot(train, aes(x=timestamp, y=price_doc)) +
+  geom_point(alpha=0.3) + ggtitle("House price by Year")+xlab("Year")+ylab("Price")
+train %>%
+  group_by(year(timestamp)) %>%
+  summarize(price = mean(price_doc))
+```
+
+We notice that average house prices indeed increase over time (inflation!).
+
+To fit a simple spline model, though, without any multivariate or GAM shenanigans, we can only use one numeric variable. Many of the measures that we've examined, though, are highly significant.
+
+```{r}
+model <- lm(price_doc~state+timestamp+kremlin_km+full_sq,data=train)
+summary(model)
+```
+
+Ultimately, we choose to just use `full_sq` because of the strength of its relationship to house price.
 
 # Model Fit
 
-```{r}
+Now, we have to decide how much "wiggle" to give our spline model.
 
+```{r}
+train2 <- train %>%
+  filter(full_sq < 1000)   # remove one outlier at 4000 square feet
+
+# Modified from https://gist.github.com/rudeboybert/752f7aa1e42faa2174822dd29bfaf959
+df_values <- c(2, 5, 10, 20)
+overall <- NULL
+for(df in df_values){
+  overall <- smooth.spline(train2$full_sq, train2$price_doc, df=df) %>%
+    broom::augment() %>%
+    mutate(df=df) %>%
+    bind_rows(overall)
+}
+overall <- overall %>% 
+  as_tibble()
+multiple_df <- overall %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y), size=0.5) +
+  geom_line(aes(y=.fitted), col="blue", size=1) +
+  facet_wrap(~df, nrow=2) +
+  labs(title="Splines fit w/ different degrees of freedom")
+multiple_df
 ```
 
+By just qualitatively examining different degrees of freedom, it seems like something between 5 and 10 degrees of freedom gives a good general fit.
+
+```{r}
+df_values <- c(6,7,8,9)
+overall <- NULL
+for(df in df_values){
+  overall <- smooth.spline(train2$full_sq, train2$price_doc, df=df) %>%
+    broom::augment() %>%
+    mutate(df=df) %>%
+    bind_rows(overall)
+}
+overall <- overall %>% 
+  as_tibble()
+multiple_df <- overall %>% 
+  ggplot(aes(x=x)) +
+  geom_point(aes(y=y), size=0.5) +
+  geom_line(aes(y=.fitted), col="blue", size=1) +
+  facet_wrap(~df, nrow=2) +
+  labs(title="Splines fit w/ different degrees of freedom")
+multiple_df
+```
+
+We will use 7 degrees of freedom in our submission.
 
 # Create Submission File
 
 ```{r}
-
+model <- smooth.spline(train2$full_sq, train2$price_doc, df=7)
+preds <- predict(model, test$full_sq)
+submission <- data.frame(test$id, preds$y)
+names(submission) <- c("id", "price_doc")
+write.csv(submission, "submission.csv", row.names=FALSE)
 ```
 
