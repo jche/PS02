@@ -29,6 +29,15 @@ test <- read_csv("data/test.csv")
 
 As 20-something-year-old college students, we don't know a whole lot about real estate. We do know, however, that we consistently hear three mantras on the subject: "Location, location, location", "... the housing market...", and something along the lines of "I want a nice house". As such, we focus in our EDA on measures of location quality, time, and house quality.
 
+First, we look at the distribution for the price variable, which we are trying to predict.
+
+```{r}
+ggplot(train,aes(x=price_doc))+geom_density(aes(y=..density..))+ggtitle("Density Plot of House Prices")+xlab("Price")
+ggplot(train,aes(x=log(price_doc)))+geom_density(aes(y=..density..))+ggtitle("Density Plot of Log House Prices")+xlab("Log Price")
+```
+
+We noticed that the price variable has a significant right skew. We did a log transformation, which made the price distribution more centered. However, since we are using this data for prediction and not inference, we decided to use the unchanged skewed price variable in our modeling. 
+
 Before we get into looking at specific variables, we examine the correlations of each given (numeric) variable with house price as a sort of sanity check.
 
 ```{r, warning=FALSE}
@@ -62,7 +71,7 @@ ggplot(train, aes(x=state, y=price_doc)) +
   ggtitle("House Price by Condition")+xlab("Condition")+ylab("Price")
 ```
 
-Clearly, houses that are in better condition (i.e. state 4) are more expensive. (33 is most likely a data input error, NAs may even be partially due to purposeful non-reporting)
+Clearly, houses that are in better condition (i.e. state 4) are more expensive. (33 is most likely a data input error, NAs may even be partially due to purposeful non-reporting). We have not conducted further analysis on this because we did not use it in our spline model, but the large difference in average prices is still interesting to note.
 
 Many location-based variables, such as the number of sports facilities nearby or distance from the Kremlin, were also quite strongly related to house price as well.
 
